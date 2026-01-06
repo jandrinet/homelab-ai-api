@@ -1,0 +1,105 @@
+name: Deployment
+
+on:
+  push:
+    branches:
+      - "master"
+  workflow_dispatch:
+
+
+env:
+  APP_NAME: homelab-ai-api
+  ACCOUNT_ID: ${{ secrets.ORG_ACCOUNT }}
+  SQUAD: homelab
+  AWS_DEFAULT_REGION: eu-central-1
+jobs:
+  build:
+    runs-on: [self-hosted, vmslave]
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout APP repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.ORG_DEVOPS_PAT }}
+      - name: Checkout core actions
+        uses: actions/checkout@v3
+        with:
+          repository: uberforcede/wg-core-gh-actions
+          path: .github/core-actions
+          token: ${{ secrets.ORG_CORE_GITHUB_PAT }}
+      - name: AWS assume role SSM globals
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+          role-duration-seconds: 1800
+          role-to-assume: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/github-actions-oidc
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      - name: Configure env action
+        uses: ./.github/core-actions/configure/v1
+        with:
+          app-docker-registry: ${{ steps.login-ecr.outputs.registry }}
+          app-repo: ${{ env.APP_NAME }}
+          app-squad: ${{ env.SQUAD }}
+          git-check: true
+          ssm: true
+          app-env: dev
+      - name: Amazon ECR image check
+        id: ecr-check
+        uses: ./.github/core-actions/amazon-ecr-image-check/v1
+        with:
+          image_name: ${{ env.APP_NAME }}
+      - name: ECR image build and push
+        if: steps.ecr-check.outputs.image_exist == 'false'
+        run: |
+          docker build -t ${REPOSITORY_URL}/${APP_NAME}:${{ github.sha }} .
+          docker push ${REPOSITORY_URL}/${APP_NAME}:${{ github.sha }}
+  deploy:
+    needs: build
+    runs-on: [ self-hosted, cicd ]
+    steps:
+    - name: Checkout APP repository
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.ORG_DEVOPS_PAT }}
+    - name: Checkout core actions
+      uses: actions/checkout@v3
+      with:
+        repository: uberforcede/wg-core-gh-actions
+        path: .github/core-actions
+        token: ${{ secrets.ORG_CORE_GITHUB_PAT }}
+    - name: AWS assume role build, push to ECR and EKS
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        role-to-assume: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/github-actions
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+        role-duration-seconds: 3600
+        role-session-name: asume_role_for_ecr_eks
+    - name: Configure env action
+      uses: ./.github/core-actions/configure/v1
+      with:
+        app-docker-registry: ${{ steps.login-ecr.outputs.registry }}
+        app-repo: ${{ env.APP_NAME }}
+        app-squad: ${{ env.SQUAD }}
+        git-check: true
+        ssm: true
+        app-env: dev
+    - name: Get Kubeconfig
+      run: |
+        aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --alias "deploy@${EKS_CLUSTER_NAME}"
+        echo 'KUBE_CONFIG_DATA<<EOF' >> $GITHUB_ENV
+        echo $(cat ~/.kube/config | base64) >> $GITHUB_ENV
+        echo 'EOF' >> $GITHUB_ENV
+    - name: Helm Deploy
+      uses: koslib/helm-eks-action@v1.22.0
+      env:
+        KUBE_CONFIG_DATA: ${{ env.KUBE_CONFIG_DATA }}
+      with:
+        command: | 
+          helm upgrade --create-namespace --install ${{ env.APP_NAME }} ./devops/kubernetes/${{ env.APP_NAME }}-helm -n \
+            ${{ env.SQUAD }} --kube-context "deploy@${{ env.EKS_CLUSTER_NAME }}" \
+            --values ./devops/kubernetes/values/${{ env.APP_ENV }}-values.yaml \
+            --set image.tag=${{ github.sha }},app.k8s_dns=${{ env.K8S_DNS }}

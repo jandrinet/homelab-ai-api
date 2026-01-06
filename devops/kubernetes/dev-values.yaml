@@ -1,0 +1,7 @@
+replicas: 1
+app:
+  env: dev
+ingress:
+  enabled: true
+  host: homelab-ai-api.jandrinet.cloud
+  scheme: "internal"

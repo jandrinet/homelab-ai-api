@@ -1,0 +1,60 @@
+replicas: 1
+image:
+  repo: homelab-ai-api
+  tag: latest
+  registry: nexus.jandrinet.cloud
+imagePullSecrets: regcred
+limitsEnabled: true
+enabled: false
+rollingUpdate: true
+strategy:
+  rollingUpdate:
+    maxUnavailable: 25%
+    maxSurge: 25%
+probeEnabled: false
+app:
+  env: dev
+  k8s_dns: 30d437346
+  aws_region: "eu-central-1"
+  squad: "homelab"
+  resources:
+    limits:
+      memory: 450Mi
+      cpu: 500m
+    requests:
+      memory: 450Mi
+      cpu: 200m
+readinessProbe:
+  httpGet:
+    path: /api/actuator/info
+    port: 8080
+  initialDelaySeconds: 60
+  periodSeconds: 5
+  timeoutSeconds: 10
+  failureThreshold: 150
+  successThreshold: 1
+livenessProbe:
+  httpGet:
+    path: /api/actuator/health
+    port: 8080
+  initialDelaySeconds: 60
+  timeoutSeconds: 10
+  periodSeconds: 5
+  failureThreshold: 150
+  successThreshold: 1
+ingress:
+  enabled: true
+  host: homelab-ai-api.jandrinet.cloud
+  class: "alb"
+  scheme: "internal"
+  sslRedirect: '{"Type": "redirect", "RedirectConfig":{ "Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
+  listenPorts: '[{"HTTP": 80}, {"HTTPS":443}]'
+  healthCheckPath: "/health"
+  certificate_arn: "arn:aws:acm:eu-central-1:079806680060:certificate/ba485d77-7a09-46d8-81dc-e2ffdf43d397"
+  tags:
+    backupPolicy: 5
+    domainOwner: p-homelab
+    resources: elbv2
+    domains: p-homelab
+    incidentPriority: 3
+    internal: true
