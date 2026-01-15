@@ -1,8 +1,0 @@
-name: Hello World
-on: workflow_dispatch
-jobs:
-  example-job:
-    runs-on: jandrinet-runner
-    steps:
-      - name: example-step
-        run: echo "Hello World!"
