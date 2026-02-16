@@ -1,0 +1,14 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: homelab-ai-api
+  description: Proxy to call the free tier AI models (grok, gemini, openrouter, ollama, ...)
+  annotations:
+    github.com/project-slug: jandrinet/homelab-ai-api
+  tags:
+    - ai
+    - proxy
+spec:
+  type: service
+  lifecycle: experimental
+  owner: guests
